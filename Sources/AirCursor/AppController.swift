@@ -41,8 +41,12 @@ final class AppController: ObservableObject {
         }
     }
 
-    @Published private(set) var trackingEnabled = false
-    @Published private(set) var mode: TrackingMode = .pointer
+    @Published private(set) var trackingEnabled = false {
+        didSet { if trackingEnabled != oldValue { sendWatchState() } }
+    }
+    @Published private(set) var mode: TrackingMode = .pointer {
+        didSet { if mode != oldValue { sendWatchState() } }
+    }
     @Published private(set) var isDragging = false
     @Published private(set) var motionStreaming = false
     @Published private(set) var accessibilityTrusted = EventSynthesizer.isTrusted
@@ -64,6 +68,7 @@ final class AppController: ObservableObject {
 
     let pairing = PairingService()
     let updates = UpdateController()
+    let watchLink = WatchLinkService()
 
     // MARK: Services
 
@@ -86,6 +91,11 @@ final class AppController: ObservableObject {
     private var zoomJoystick = ZoomJoystick()
     /// Where an in-progress pinch is anchored (nil = no pinch open).
     private var pinchPoint: CGPoint?
+    /// Digital Crown turns waiting to be played out smoothly (scroll pixels, magnification).
+    private var crownScroll = CrownGlide()
+    private var crownZoom = CrownGlide()
+    private var crownScrollRemainder = 0.0
+    private var lastCrownAt: TimeInterval = -.infinity
     private var dwell: DwellDetector
     private var history = CursorHistory(capacity: 360)
     private var frameTimer: Timer?
@@ -155,6 +165,16 @@ final class AppController: ObservableObject {
 
         registerHotKeys()
 
+        watchLink.onCommand = { [weak self] command in self?.handleWatch(command) }
+        watchLink.onWatchReady = { [weak self] in self?.sendWatchState() }
+        watchLink.onWatchGone = { [weak self] in
+            // Never leave a pinch open or a button held because the watch walked away.
+            self?.crownScroll.reset()
+            self?.crownZoom.reset()
+            self?.releaseButtons()
+        }
+        if settings.watch.enabled { watchLink.start() }
+
         updates.settings = { [unowned self] in self.settings }
         updates.updateSettings = { [unowned self] change in change(&self.settings) }
         updates.announce = { [weak self] in
@@ -182,6 +202,11 @@ final class AppController: ObservableObject {
             forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.releaseButtons() }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.watchLink.restartAdvertising() }
         }
 
         housekeepingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
@@ -226,6 +251,7 @@ final class AppController: ObservableObject {
 
     func shutdown() {
         releaseButtons()
+        watchLink.stop()
         stem.stop()
         keepAlive.stop()
         motion.stop()
@@ -259,6 +285,8 @@ final class AppController: ObservableObject {
         cursor = nil
         lastFrame = nil
         if !on {
+            crownScroll.reset()
+            crownZoom.reset()
             releaseButtons()
             dwell.reset()
             cursorOverlay.hide()
@@ -277,6 +305,8 @@ final class AppController: ObservableObject {
         scrollRemainder = .zero
         smoother.reset()
         endPinch()
+        crownScroll.reset()
+        crownZoom.reset()
         scrollJoystick.reset()
         zoomJoystick.reset()
         dwell.reset()
@@ -471,6 +501,7 @@ final class AppController: ObservableObject {
         }
         dwell.settings = settings.dwell
         if !settings.dwell.enabled { cursorOverlay.hide() }
+        if settings.watch.enabled { watchLink.start() } else { watchLink.stop() }
         updateServices()
     }
 
@@ -737,16 +768,28 @@ final class AppController: ObservableObject {
                 synth.scroll(vertical: Int32(sy * sign), horizontal: Int32(sx * sign))
             }
         case .zoom:
-            // Hold the head up/down: a smooth trackpad pinch around the pointer.
-            let magnification = zoomJoystick.step(now: now, dt: dt)
+            // Hold the head up/down (or turn the watch's crown): a smooth trackpad pinch
+            // around the pointer.
+            let magnification = zoomJoystick.step(now: now, dt: dt) + crownZoom.step(dt: dt, epsilon: 0.0005)
             if magnification != 0 {
                 if pinchPoint == nil {
                     pinchPoint = position
                     synth.pinch(.began, at: position)
                 }
                 synth.pinch(.changed, magnification: magnification, at: pinchPoint ?? position)
-            } else {
+            } else if now - lastCrownAt > Self.crownPinchLinger {
                 endPinch()
+            }
+        }
+
+        // Digital Crown scrolling works in every mode except zoom (where it zooms).
+        let crownPixels = crownScroll.step(dt: dt, epsilon: 0.5)
+        if crownPixels != 0 {
+            crownScrollRemainder += crownPixels
+            let px = crownScrollRemainder.rounded(.towardZero)
+            if px != 0 {
+                crownScrollRemainder -= px
+                synth.scroll(vertical: Int32(px), horizontal: 0)
             }
         }
 
@@ -858,6 +901,63 @@ final class AppController: ObservableObject {
         lastTriggerDescription = "\(trigger.displayName) → \(action.displayName)"
         perform(action, at: point)
         lastTriggerEvent = TriggerEvent(trigger: trigger, action: action)
+        if trigger == .dwell, action.isClick { notifyWatch(.clicked) }
+    }
+
+    // MARK: Apple Watch remote
+
+    /// How long a crown pinch stays open after the last turn, so slow turns are one gesture.
+    private static let crownPinchLinger: TimeInterval = 0.3
+    /// Scroll pixels and pinch magnification per crown detent (before the speed setting).
+    private static let crownPixelsPerDetent = 36.0
+    private static let crownZoomPerDetent = 0.05
+
+    private func handleWatch(_ command: WatchCommand) {
+        switch command {
+        case .doubleTap:
+            handle(trigger: .watchDoubleTap, gestureStart: nil)
+        case .button(let button):
+            let action = button.action
+            guard trackingEnabled || action == .toggleTracking else {
+                toast("AirCursor is paused", symbol: "pause.circle.fill")
+                return
+            }
+            guard accessibilityTrusted || !action.needsAccessibility else {
+                toast("Allow Accessibility to control the pointer", symbol: "lock.shield")
+                return
+            }
+            lastTriggerDescription = "Apple Watch \(button.title) → \(action.displayName)"
+            perform(action, at: cursor ?? synth.currentLocation())
+        case .crown(let hundredths):
+            guard trackingEnabled, accessibilityTrusted else { return }
+            let detents = Double(hundredths) / 100 * settings.watch.crownSpeed
+            lastCrownAt = Self.now
+            if mode == .zoom {
+                crownZoom.add(detents * Self.crownZoomPerDetent)
+            } else {
+                // Crown up (away from you) scrolls up, like the watch's own lists.
+                crownScroll.add(detents * Self.crownPixelsPerDetent)
+            }
+        case .crownEnd:
+            lastCrownAt = -.infinity
+        case .stateRequest:
+            sendWatchState()
+        }
+    }
+
+    private func sendWatchState() {
+        let m: WatchMode = switch mode {
+        case .pointer: .pointer
+        case .scroll: .scroll
+        case .zoom: .zoom
+        }
+        watchLink.send(.state(tracking: trackingEnabled, mode: m))
+    }
+
+    /// Taps the wrist (if the watch is connected and haptics are on).
+    private func notifyWatch(_ event: WatchEvent) {
+        guard settings.watch.haptics else { return }
+        watchLink.send(event)
     }
 
     private func perform(_ action: PointerAction, at point: CGPoint) {
@@ -905,10 +1005,12 @@ final class AppController: ObservableObject {
             // Dictation's shortcut must be "Press Control Key Twice" (System Settings › Keyboard).
             synth.doubleTapControl()
             toast("Dictation — speak, then press again to stop", symbol: "mic.fill")
+            notifyWatch(.dictationStarted)
         case .missionControl, .appWindows, .previousSpace, .nextSpace, .back, .forward, .screenshot, .pressReturn:
             if let shortcut = action.keyShortcut {
                 synth.keyStroke(shortcut.key, flags: shortcut.flags)
                 toast(action.displayName, symbol: action.symbol)
+                if action == .previousSpace || action == .nextSpace { notifyWatch(.spaceSwitched) }
             }
         }
         if action.isClick { dwell.reset() }
@@ -1000,6 +1102,18 @@ final class AppController: ObservableObject {
 }
 
 // MARK: - Keyboard shortcuts for system actions
+
+extension WatchButton {
+    var title: String {
+        switch self {
+        case .talk: "Talk"
+        case .send: "Send"
+        case .pause: "Pause"
+        case .scrollMode: "Scroll"
+        case .zoomMode: "Zoom"
+        }
+    }
+}
 
 extension PointerAction {
     var needsAccessibility: Bool {

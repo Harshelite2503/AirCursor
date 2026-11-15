@@ -6,6 +6,8 @@ public enum Trigger: String, Codable, CaseIterable, Identifiable, Sendable {
     case nod, nodUp, shake, tiltLeft, tiltRight
     case swipeLeft, swipeRight
     case dwell
+    /// Apple Watch Double Tap (index finger and thumb), or a tap on the remote's big button.
+    case watchDoubleTap
 
     public var id: String { rawValue }
 
@@ -22,8 +24,11 @@ public enum Trigger: String, Codable, CaseIterable, Identifiable, Sendable {
         case .swipeLeft: "Flick head left"
         case .swipeRight: "Flick head right"
         case .dwell: "Hover (rest the pointer)"
+        case .watchDoubleTap: "Apple Watch Double Tap"
         }
     }
+
+    public var isWatch: Bool { self == .watchDoubleTap }
 
     public var isStem: Bool { self == .stemSingle || self == .stemDouble || self == .stemTriple }
 
@@ -130,6 +135,8 @@ public struct ActionMap: Codable, Equatable, Sendable {
         .swipeLeft: .previousSpace,
         .swipeRight: .nextSpace,
         .dwell: .leftClick,
+        // Pinch finger and thumb twice: a crisp click where the pointer is.
+        .watchDoubleTap: .leftClick,
     ]
 
     private var bindings: [Trigger: PointerAction]
@@ -181,5 +188,18 @@ public struct ActionMap: Codable, Equatable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.singleValueContainer()
         try c.encode(Dictionary(uniqueKeysWithValues: bindings.map { ($0.key.rawValue, $0.value.rawValue) }))
+    }
+}
+
+extension WatchButton {
+    /// What each of the Apple Watch remote's buttons does. Fixed, so the labels match.
+    public var action: PointerAction {
+        switch self {
+        case .talk: .dictate
+        case .send: .pressReturn
+        case .pause: .toggleTracking
+        case .scrollMode: .toggleScrollMode
+        case .zoomMode: .toggleZoomMode
+        }
     }
 }

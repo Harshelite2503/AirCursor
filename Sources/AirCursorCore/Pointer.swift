@@ -230,3 +230,27 @@ public struct ZoomJoystick: Sendable {
         return speed * dt
     }
 }
+
+/// Spreads Apple Watch Digital Crown steps (which arrive about 30 times a second) over the
+/// 120 Hz frame loop, so crown scrolling and zooming glide instead of stepping.
+public struct CrownGlide: Sendable {
+    /// Seconds for most of a step to play out.
+    public static let timeConstant: TimeInterval = 0.06
+    public private(set) var pending = 0.0
+
+    public init() {}
+
+    public mutating func add(_ amount: Double) { pending += amount }
+
+    /// How much to apply this frame. A leftover smaller than `epsilon` goes out at once, so
+    /// it always finishes.
+    public mutating func step(dt: TimeInterval, epsilon: Double) -> Double {
+        guard pending != 0 else { return 0 }
+        var out = pending * min(1, max(dt, 0) / Self.timeConstant)
+        if abs(pending - out) < epsilon { out = pending }
+        pending -= out
+        return out
+    }
+
+    public mutating func reset() { pending = 0 }
+}

@@ -106,6 +106,26 @@ public struct DwellSettings: Codable, Equatable, Sendable {
     }
 }
 
+/// The Apple Watch remote (Bluetooth LE, watch → Mac directly).
+public struct WatchSettings: Codable, Equatable, Sendable {
+    /// Off by default: the Mac only advertises the remote's Bluetooth service when asked to.
+    public var enabled: Bool = false
+    /// Digital Crown scroll / zoom speed multiplier.
+    public var crownSpeed: Double = 1.0
+    /// Tap the wrist when a hover click fires, dictation starts or the Space changes.
+    public var haptics: Bool = true
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = WatchSettings()
+        enabled = c.value(.enabled, default: d.enabled)
+        crownSpeed = c.value(.crownSpeed, default: d.crownSpeed)
+        haptics = c.value(.haptics, default: d.haptics)
+    }
+}
+
 public struct AppSettings: Codable, Equatable, Sendable {
     /// Bumped when defaults change in a way existing users should receive.
     public static let currentVersion = 8
@@ -115,6 +135,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var gestures = GestureSettings()
     public var dwell = DwellSettings()
     public var actions = ActionMap()
+    public var watch = WatchSettings()
     /// Listen for AirPods stem presses (play/pause, next, previous).
     public var stemControlsEnabled: Bool = true
     /// Play an inaudible stream so macOS routes AirPods presses to AirCursor.
@@ -140,6 +161,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         gestures = c.value(.gestures, default: d.gestures)
         dwell = c.value(.dwell, default: d.dwell)
         actions = c.value(.actions, default: d.actions)
+        watch = c.value(.watch, default: d.watch)
         stemControlsEnabled = c.value(.stemControlsEnabled, default: d.stemControlsEnabled)
         keepAudioRouteActive = c.value(.keepAudioRouteActive, default: d.keepAudioRouteActive)
         routeAudioToHeadphones = c.value(.routeAudioToHeadphones, default: d.routeAudioToHeadphones)

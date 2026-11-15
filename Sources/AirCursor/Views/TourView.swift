@@ -304,7 +304,7 @@ extension AppController {
     /// "press the stem once or nod". Nil if nothing is bound to it.
     func howTo(_ action: PointerAction) -> String? {
         let triggers = settings.actions.triggers(for: action).filter { t in
-            t != .dwell || settings.dwell.enabled
+            (t != .dwell || settings.dwell.enabled) && (!t.isWatch || settings.watch.enabled)
         }
         guard !triggers.isEmpty else { return nil }
         return triggers.map(\.phrase).joined(separator: " or ")
@@ -325,6 +325,7 @@ extension Trigger {
         case .swipeLeft: "flick your head left"
         case .swipeRight: "flick your head right"
         case .dwell: "rest the pointer on it"
+        case .watchDoubleTap: "double-tap finger and thumb with your Apple Watch"
         }
     }
 }
@@ -705,6 +706,7 @@ private struct DoneStep: View {
         Trigger.allCases.compactMap { t in
             let a = controller.settings.actions[t]
             if a == .none || (t == .dwell && !controller.settings.dwell.enabled) { return nil }
+            if t.isWatch && !controller.settings.watch.enabled { return nil }
             return (t, a)
         }
     }

@@ -28,15 +28,15 @@
 	<string>15.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>AirCursor uses Bluetooth to find, pair and connect your AirPods, and, if you turn it on, to talk directly to the AirCursor app on your Apple Watch.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
-	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 AirCursor contributors · MIT License</string>
 	<key>NSMotionUsageDescription</key>
 	<string>AirCursor reads your AirPods’ head-tracking sensors so you can move the pointer by turning your head. Motion data never leaves your Mac.</string>
-	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>AirCursor uses Bluetooth to find, pair and connect your AirPods.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
 </dict>
 </plist>

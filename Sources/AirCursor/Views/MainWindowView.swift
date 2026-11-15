@@ -2,7 +2,7 @@ import SwiftUI
 import AirCursorCore
 
 enum Pane: String, CaseIterable, Identifiable {
-    case setup, devices, pointer, gestures, shortcuts
+    case setup, devices, pointer, gestures, watch, shortcuts
 
     var id: String { rawValue }
 
@@ -12,6 +12,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .devices: "AirPods"
         case .pointer: "Pointer"
         case .gestures: "Clicks & Gestures"
+        case .watch: "Apple Watch"
         case .shortcuts: "Shortcuts & General"
         }
     }
@@ -22,6 +23,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .devices: "airpodspro"
         case .pointer: "cursorarrow.motionlines"
         case .gestures: "hand.tap"
+        case .watch: "applewatch"
         case .shortcuts: "keyboard"
         }
     }
@@ -44,6 +46,7 @@ struct MainWindowView: View {
                 case .devices: DevicesView()
                 case .pointer: PointerSettingsView()
                 case .gestures: GestureSettingsView()
+                case .watch: WatchSettingsView()
                 case .shortcuts: GeneralView()
                 }
             }
