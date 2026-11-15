@@ -541,6 +541,15 @@ public struct DwellDetector: Sendable {
         anchor = nil
     }
 
+    /// Run the rest timer again from `time` at the same spot, without needing a move.
+    /// For when a click came due before the app knew the spot is clickable: it gets
+    /// another full rest instead of being lost.
+    public mutating func restartTimer(at time: TimeInterval) {
+        guard anchor != nil else { return }
+        anchorTime = time
+        armed = true
+    }
+
     public struct Update: Equatable, Sendable {
         /// 0...1 while dwelling (nil = hide indicator).
         public var progress: Double?

@@ -103,6 +103,12 @@ final class AppController: ObservableObject {
     private var nodCalibration: [Double]?
     private var probedAnchor = -1
     private var anchorClickable: Bool?
+    /// Checks made for the current resting spot; apps can answer late or inconsistently
+    /// (Chrome, or a page switching to the hand pointer a moment after we arrive).
+    private var probeAttempts = 0
+    private var lastProbeAt: TimeInterval = 0
+    private static let maxProbeAttempts = 3
+    private static let probeRetryInterval: TimeInterval = 0.25
     private static let calibrationNodAmplitude = 4.0
     private var sampleCount = 0
     private var housekeepingTicks = 0
@@ -752,18 +758,26 @@ final class AppController: ObservableObject {
             var progress = update.progress
             var fired = update.fired
             if settings.dwell.smart {
-                // Once per resting spot, ask whether what's under the pointer is clickable.
-                // Until we know (or if it isn't), show nothing and don't click.
+                // Ask whether what's under the pointer is clickable when it settles, and
+                // ask again a couple of times if the answer is "no" (apps can answer late).
+                // Until it's a yes, show nothing and don't click.
                 let anchor = dwell.anchorID
-                if progress != nil || fired, probedAnchor != anchor {
-                    probedAnchor = anchor
-                    anchorClickable = nil
-                    ClickableProbe.check(position) { [weak self] clickable in
-                        guard let self, self.probedAnchor == anchor else { return }
-                        self.anchorClickable = clickable
+                if progress != nil || fired {
+                    if probedAnchor != anchor {
+                        probedAnchor = anchor
+                        anchorClickable = nil
+                        probeAttempts = 0
+                        probeClickable(at: position, anchor: anchor, now: now)
+                    } else if anchorClickable == false, probeAttempts < Self.maxProbeAttempts,
+                              now - lastProbeAt >= Self.probeRetryInterval {
+                        probeClickable(at: position, anchor: anchor, now: now)
                     }
                 }
                 if anchorClickable != true {
+                    // A click that came due while still checking waits for another rest.
+                    if fired, anchorClickable == nil || probeAttempts < Self.maxProbeAttempts {
+                        dwell.restartTimer(at: now)
+                    }
                     progress = nil
                     fired = false
                 }
@@ -772,6 +786,15 @@ final class AppController: ObservableObject {
             if fired { handle(trigger: .dwell, gestureStart: nil) }
         } else {
             cursorOverlay.update(dwellProgress: nil, at: position)
+        }
+    }
+
+    private func probeClickable(at position: CGPoint, anchor: Int, now: TimeInterval) {
+        probeAttempts += 1
+        lastProbeAt = now
+        ClickableProbe.check(position) { [weak self] clickable in
+            guard let self, self.probedAnchor == anchor else { return }
+            self.anchorClickable = clickable
         }
     }
 

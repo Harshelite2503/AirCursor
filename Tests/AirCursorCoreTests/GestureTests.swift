@@ -459,6 +459,26 @@ final class DwellTests: XCTestCase {
         XCTAssertEqual(d.anchorPosition, Vec2(120, 0))
     }
 
+    func testRestartTimerGivesASuppressedClickAnotherRest() {
+        var d = DwellDetector(settings: settings())
+        _ = d.update(position: .zero, time: 0)
+        _ = d.update(position: Vec2(40, 0), time: 0)          // moved: armed
+        XCTAssertTrue(d.update(position: Vec2(40, 0), time: 1.0).fired)
+        // The app wasn't sure yet, so it asks for another full rest at the same spot.
+        d.restartTimer(at: 1.0)
+        XCTAssertFalse(d.update(position: Vec2(40, 0), time: 1.5).fired)
+        XCTAssertTrue(d.update(position: Vec2(41, 0), time: 2.0).fired)
+        // Without a restart, resting longer never fires again.
+        XCTAssertFalse(d.update(position: Vec2(41, 0), time: 5.0).fired)
+    }
+
+    func testRestartTimerNeedsARestingSpot() {
+        var d = DwellDetector(settings: settings())
+        d.restartTimer(at: 0)                                  // nothing to restart yet
+        XCTAssertFalse(d.update(position: .zero, time: 0).fired)
+        XCTAssertFalse(d.update(position: .zero, time: 3).fired)
+    }
+
     func testProgressRevealsAndResetDisarms() {
         var d = DwellDetector(settings: settings())
         _ = d.update(position: .zero, time: 0)
