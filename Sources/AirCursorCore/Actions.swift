@@ -65,6 +65,7 @@ public enum PointerAction: String, Codable, CaseIterable, Identifiable, Sendable
     case missionControl, appWindows, previousSpace, nextSpace
     case back, forward
     case screenshot
+    case dictate, pressReturn
 
     public var id: String { rawValue }
 
@@ -87,6 +88,8 @@ public enum PointerAction: String, Codable, CaseIterable, Identifiable, Sendable
         case .back: "Back (⌘[)"
         case .forward: "Forward (⌘])"
         case .screenshot: "Screenshot tool"
+        case .dictate: "Dictate (talk to type)"
+        case .pressReturn: "Press Return (send)"
         }
     }
 
@@ -104,6 +107,7 @@ public enum PointerAction: String, Codable, CaseIterable, Identifiable, Sendable
         ("Mouse", [.leftClick, .rightClick, .doubleClick, .middleClick, .toggleDrag]),
         ("AirCursor", [.toggleScrollMode, .toggleZoomMode, .toggleTracking, .recenter]),
         ("System", [.missionControl, .appWindows, .previousSpace, .nextSpace, .back, .forward, .screenshot]),
+        ("Voice", [.dictate, .pressReturn]),
     ]
 }
 
@@ -112,7 +116,8 @@ public struct ActionMap: Codable, Equatable, Sendable {
     public static let defaults: [Trigger: PointerAction] = [
         .stemSingle: .leftClick,
         .stemDouble: .rightClick,
-        .stemTriple: .toggleScrollMode,
+        // Talk through the AirPods: macOS Dictation types into the focused text box.
+        .stemTriple: .dictate,
         .nod: .leftClick,
         // A quick chin-up nod enters and leaves scroll mode; a normal (downward) nod clicks.
         .nodUp: .toggleScrollMode,

@@ -570,6 +570,26 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(AppSettings.self, from: Data(tuned.utf8)).migrated().gestures.tiltHold, 0.8)
     }
 
+    func testTripleStemPressDictatesByDefault() {
+        let m = ActionMap()
+        XCTAssertEqual(m[.stemTriple], .dictate)
+        XCTAssertEqual(m[.nodUp], .toggleScrollMode)              // scroll mode stays reachable
+        XCTAssertFalse(ActionMap.isModeSwitch(.dictate))
+        XCTAssertTrue(PointerAction.groups.contains { $0.actions.contains(.dictate) && $0.actions.contains(.pressReturn) })
+    }
+
+    func testV7SettingsGetDictationOnTripleStemPress() throws {
+        let v7 = #"{"version":7,"actions":{"stemTriple":"toggleScrollMode","nodUp":"toggleScrollMode"}}"#
+        XCTAssertEqual(try JSONDecoder().decode(AppSettings.self, from: Data(v7.utf8)).migrated().actions[.stemTriple], .dictate)
+
+        // If the chin-up nod isn't scroll mode, the triple press keeps it so no one loses scrolling.
+        let noNod = #"{"version":7,"actions":{"stemTriple":"toggleScrollMode","nodUp":"none"}}"#
+        XCTAssertEqual(try JSONDecoder().decode(AppSettings.self, from: Data(noNod.utf8)).migrated().actions[.stemTriple], .toggleScrollMode)
+
+        let custom = #"{"version":7,"actions":{"stemTriple":"screenshot"}}"#
+        XCTAssertEqual(try JSONDecoder().decode(AppSettings.self, from: Data(custom.utf8)).migrated().actions[.stemTriple], .screenshot)
+    }
+
     func testCurrentSettingsAreNotReMigrated() throws {
         var s = AppSettings()
         s.dwell.enabled = false

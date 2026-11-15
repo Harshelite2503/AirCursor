@@ -108,7 +108,7 @@ public struct DwellSettings: Codable, Equatable, Sendable {
 
 public struct AppSettings: Codable, Equatable, Sendable {
     /// Bumped when defaults change in a way existing users should receive.
-    public static let currentVersion = 7
+    public static let currentVersion = 8
     public var version: Int = AppSettings.currentVersion
 
     public var pointer = PointerSettings()
@@ -187,6 +187,13 @@ extension AppSettings {
             // v7: tilts pause and switch modes now, so they must be held a little longer
             // (a quick sideways flick while looking down can roll the head briefly).
             if s.gestures.tiltHold == 0.3 { s.gestures.tiltHold = GestureSettings().tiltHold }
+        }
+        if s.version < 8 {
+            // v8: the triple stem press starts dictation. Only when scroll mode is still
+            // reachable another way (the chin-up nod), so no one loses it.
+            if s.actions[.stemTriple] == .toggleScrollMode, s.actions[.nodUp] == .toggleScrollMode {
+                s.actions[.stemTriple] = .dictate
+            }
         }
         s.version = AppSettings.currentVersion
         return s

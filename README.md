@@ -38,7 +38,7 @@ AirCursor reads the motion sensors already built into your AirPods and turns hea
 | Rest the pointer on a button | **Hover click.** A ring fills, then it clicks. Only buttons, links, tabs, menus, fields and Dock icons count, so resting on text you're reading never clicks |
 | Press the stem once | Left click |
 | Press the stem twice | Right click |
-| Press the stem three times | Scroll mode: hold your head up or down to keep scrolling |
+| Press the stem three times | Dictation: talk through your AirPods and macOS types into the focused box (Claude, Codex, Terminal…); press again to stop. Needs System Settings › Keyboard › Dictation › Shortcut set to **Press Control Key Twice** |
 | Nod | Left click, landing where you pointed *before* the nod |
 | Nod up (quick chin up and back) | Scroll mode on / off |
 | Tilt your head right and hold | Pause / resume |

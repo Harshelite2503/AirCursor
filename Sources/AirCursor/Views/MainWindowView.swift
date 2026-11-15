@@ -161,7 +161,7 @@ struct SetupView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("How to use it").font(.headline)
-                        Text("Turn your head → move · Press stem → click · Press twice → right‑click · Press three times → scroll mode · Nod → click · Nod up (chin up and back) → scroll mode · Flick head left/right → switch Spaces · Tilt head right and hold → pause/resume · Tilt head left and hold → zoom mode · \(HotKey.toggleTracking.display) → pause/resume")
+                        Text("Turn your head → move · Press stem → click · Press twice → right‑click · Press three times → dictation (talk to type) · Nod → click · Nod up (chin up and back) → scroll mode · Flick head left/right → switch Spaces · Tilt head right and hold → pause/resume · Tilt head left and hold → zoom mode · \(HotKey.toggleTracking.display) → pause/resume")
                             .font(.callout).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -328,8 +328,8 @@ struct PointerSettingsView: View {
                 Toggle("Invert scroll direction", isOn: $controller.settings.pointer.invertScroll)
                 Toggle("Keep scrolling while head is held up or down", isOn: $controller.settings.pointer.continuousScroll)
                 Text(controller.settings.pointer.continuousScroll
-                     ? "In scroll mode, hold your head up or down to keep scrolling (lean further to go faster) and come back level to stop. Turn left/right to scroll sideways. Toggle it with a triple stem press or \(HotKey.scrollMode.display)."
-                     : "In scroll mode, look down/up to scroll and turn left/right to scroll sideways. Toggle it with a triple stem press or \(HotKey.scrollMode.display).")
+                     ? "In scroll mode, hold your head up or down to keep scrolling (lean further to go faster) and come back level to stop. Turn left/right to scroll sideways. Toggle it with a quick chin-up nod or \(HotKey.scrollMode.display)."
+                     : "In scroll mode, look down/up to scroll and turn left/right to scroll sideways. Toggle it with a quick chin-up nod or \(HotKey.scrollMode.display).")
                 Text("In zoom mode, hold your head up to zoom in and down to zoom out (lean further to zoom faster); come back level to stop. It's a smooth two-finger pinch around the pointer, so point at what you want to see first. Works wherever trackpad pinch does (Safari, Chrome, Preview, Maps, Photos…). Experimental: it uses an undocumented macOS feature. Toggle it by tilting your head left and holding, or \(HotKey.zoomMode.display). In scroll and zoom mode, only the gestures that switch mode or pause stay active.")
                     .font(.caption).foregroundStyle(.secondary)
                     .font(.caption).foregroundStyle(.secondary)
@@ -363,7 +363,7 @@ struct GestureSettingsView: View {
             } header: {
                 Text("Stem presses")
             } footer: {
-                Text("While tracking is on, AirCursor takes over play/pause/next/previous from your AirPods and keyboard media keys. Pause tracking to give them back to your music app.")
+                Text("While tracking is on, AirCursor takes over play/pause/next/previous from your AirPods and keyboard media keys. Pause tracking to give them back to your music app.\n\n\"Dictate\" starts macOS Dictation, which listens through your AirPods and types into whatever text box is focused (Claude, Codex, Terminal…). Set System Settings › Keyboard › Dictation › Shortcut to \"Press Control Key Twice\". AirCursor never hears the audio itself.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 

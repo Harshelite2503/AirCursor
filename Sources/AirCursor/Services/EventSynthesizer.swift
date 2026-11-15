@@ -79,6 +79,22 @@ final class EventSynthesizer {
         e.post(tap: .cghidEventTap)
     }
 
+    /// Taps Control twice, the macOS Dictation shortcut "Press Control Key Twice".
+    /// Toggles Dictation: it listens through the current mic (the AirPods) and types
+    /// into the focused text field. AirCursor itself never touches the audio.
+    func doubleTapControl() {
+        let tap = { [source] in
+            for down in [true, false] {
+                guard let e = CGEvent(keyboardEventSource: source, virtualKey: 0x3B, keyDown: down) else { continue }
+                e.type = .flagsChanged
+                e.flags = down ? .maskControl : []
+                e.post(tap: .cghidEventTap)
+            }
+        }
+        tap()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: tap)
+    }
+
     func keyStroke(_ keyCode: CGKeyCode, flags: CGEventFlags) {
         for down in [true, false] {
             guard let e = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: down) else { continue }

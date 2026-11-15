@@ -878,7 +878,11 @@ final class AppController: ObservableObject {
             zoomJoystick.reset()
             gestures.resetTiltBaseline()
             toast("Recentered", symbol: "scope")
-        case .missionControl, .appWindows, .previousSpace, .nextSpace, .back, .forward, .screenshot:
+        case .dictate:
+            // Dictation's shortcut must be "Press Control Key Twice" (System Settings › Keyboard).
+            synth.doubleTapControl()
+            toast("Dictation — speak, then press again to stop", symbol: "mic.fill")
+        case .missionControl, .appWindows, .previousSpace, .nextSpace, .back, .forward, .screenshot, .pressReturn:
             if let shortcut = action.keyShortcut {
                 synth.keyStroke(shortcut.key, flags: shortcut.flags)
                 toast(action.displayName, symbol: action.symbol)
@@ -989,6 +993,7 @@ extension PointerAction {
         case .back: return (CGKeyCode(kVK_ANSI_LeftBracket), .maskCommand)
         case .forward: return (CGKeyCode(kVK_ANSI_RightBracket), .maskCommand)
         case .screenshot: return (CGKeyCode(kVK_ANSI_5), [.maskCommand, .maskShift])
+        case .pressReturn: return (CGKeyCode(kVK_Return), [])
         default: return nil
         }
     }
@@ -1012,6 +1017,8 @@ extension PointerAction {
         case .back: "chevron.backward"
         case .forward: "chevron.forward"
         case .screenshot: "camera.viewfinder"
+        case .dictate: "mic.fill"
+        case .pressReturn: "return"
         }
     }
 }
