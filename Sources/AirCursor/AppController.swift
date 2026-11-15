@@ -7,9 +7,15 @@ import SwiftUI
 import AirCursorCore
 
 enum TrackingMode: String {
-    case pointer, scroll
+    case pointer, scroll, zoom
 
-    var title: String { self == .pointer ? "Pointer" : "Scroll" }
+    var title: String {
+        switch self {
+        case .pointer: "Pointer"
+        case .scroll: "Scroll"
+        case .zoom: "Zoom"
+        }
+    }
 }
 
 /// Live sensor readout for the UI (published at ~10 Hz, not per frame).
@@ -76,6 +82,10 @@ final class AppController: ObservableObject {
     private var differentiator = MotionDifferentiator()
     private var gestures: GestureDetector
     private var smoother = PointerSmoother()
+    private var scrollJoystick = ScrollJoystick()
+    private var zoomJoystick = ZoomJoystick()
+    /// Where an in-progress pinch is anchored (nil = no pinch open).
+    private var pinchPoint: CGPoint?
     private var dwell: DwellDetector
     private var history = CursorHistory(capacity: 360)
     private var frameTimer: Timer?
@@ -238,6 +248,8 @@ final class AppController: ObservableObject {
         if on { routeAudioToHeadphonesIfNeeded() }
         differentiator.reset()
         smoother.reset()
+        scrollJoystick.reset()
+        zoomJoystick.reset()
         cursor = nil
         lastFrame = nil
         if !on {
@@ -258,10 +270,22 @@ final class AppController: ObservableObject {
         mode = newMode
         scrollRemainder = .zero
         smoother.reset()
+        endPinch()
+        scrollJoystick.reset()
+        zoomJoystick.reset()
         dwell.reset()
         cursorOverlay.hide()
-        toast(newMode == .scroll ? "Scroll mode — move your head to scroll" : "Pointer mode",
-              symbol: newMode == .scroll ? "arrow.up.and.down.circle.fill" : "cursorarrow")
+        switch newMode {
+        case .pointer:
+            toast("Pointer mode", symbol: "cursorarrow")
+        case .scroll:
+            toast(settings.pointer.continuousScroll
+                  ? "Scroll mode — hold your head up or down to scroll"
+                  : "Scroll mode — move your head to scroll",
+                  symbol: "arrow.up.and.down.circle.fill")
+        case .zoom:
+            toast("Zoom mode — head up to zoom in, down to zoom out, where the pointer is", symbol: "plus.magnifyingglass")
+        }
     }
 
     /// Asks for motion permission (system prompt) without starting cursor control.
@@ -618,7 +642,18 @@ final class AppController: ObservableObject {
 
         var enabled = settings.actions.enabledHeadGestures
         if nodCalibration != nil { enabled.insert(.nod) }
-        if let event = gestures.process(sample, enabled: enabled) {
+        if mode != .pointer {
+            // Scrolling and zooming mean leaning the head a lot, so other gestures would
+            // fire by accident (a quick lean looks like a nod = click; a tilt could open
+            // Mission Control). Keep only the ones that switch mode or pause.
+            for trigger in Trigger.allCases {
+                if let g = trigger.headGesture, !ActionMap.isModeSwitch(settings.actions[trigger]) {
+                    enabled.remove(g)
+                }
+            }
+        }
+        if let event = gestures.process(sample, enabled: enabled),
+           mode == .pointer || event.gesture != .nodUp || event.isSnappy {
             Diagnostics.log.notice("Gesture \(event.gesture.rawValue, privacy: .public) (\(String(format: "%.1f", event.magnitude), privacy: .public)°)")
             if event.gesture == .nod {
                 lastNodDepth = event.magnitude
@@ -627,6 +662,14 @@ final class AppController: ObservableObject {
             // Convert from the sensor clock to the host clock used by the cursor history.
             let start = event.startTime + (hostNow - sample.timestamp)
             handle(trigger: Trigger(event.gesture), gestureStart: start)
+        }
+
+        if trackingEnabled, mode == .scroll, settings.pointer.continuousScroll {
+            scrollJoystick.update(pitch: AngleMath.degrees(sample.pitch),
+                                  scrollSpeed: settings.pointer.scrollSpeed, at: hostNow)
+        }
+        if trackingEnabled, mode == .zoom {
+            zoomJoystick.update(pitch: AngleMath.degrees(sample.pitch), at: hostNow)
         }
 
         guard let rates = differentiator.push(sample) else { return }
@@ -672,7 +715,13 @@ final class AppController: ObservableObject {
                 lastFrameDelta = 0
             }
         case .scroll:
-            scrollRemainder += delta * (0.6 * settings.pointer.scrollSpeed)
+            scrollRemainder.x += delta.x * (0.6 * settings.pointer.scrollSpeed)
+            if settings.pointer.continuousScroll {
+                // Vertical: hold the head up/down and it keeps going (joystick).
+                scrollRemainder.y += scrollJoystick.step(now: now, dt: dt)
+            } else {
+                scrollRemainder.y += delta.y * (0.6 * settings.pointer.scrollSpeed)
+            }
             let sx = scrollRemainder.x.rounded(.towardZero)
             let sy = scrollRemainder.y.rounded(.towardZero)
             if sx != 0 || sy != 0 {
@@ -680,6 +729,18 @@ final class AppController: ObservableObject {
                 let sign: Double = settings.pointer.invertScroll ? 1 : -1
                 // Look down → reveal content below; turn right → reveal content to the right.
                 synth.scroll(vertical: Int32(sy * sign), horizontal: Int32(sx * sign))
+            }
+        case .zoom:
+            // Hold the head up/down: a smooth trackpad pinch around the pointer.
+            let magnification = zoomJoystick.step(now: now, dt: dt)
+            if magnification != 0 {
+                if pinchPoint == nil {
+                    pinchPoint = position
+                    synth.pinch(.began, at: position)
+                }
+                synth.pinch(.changed, magnification: magnification, at: pinchPoint ?? position)
+            } else {
+                endPinch()
             }
         }
 
@@ -754,6 +815,8 @@ final class AppController: ObservableObject {
         // Head gestures can't pause tracking during setup: people look around a lot
         // while granting permissions and putting AirPods in.
         if action == .toggleTracking, trigger.headGesture != nil, !settings.hasCompletedOnboarding { return }
+        // Nor switch Spaces: glancing around during setup shouldn't fling the tour away.
+        if trigger == .swipeLeft || trigger == .swipeRight, !settings.hasCompletedOnboarding { return }
         guard accessibilityTrusted || !action.needsAccessibility else {
             toast("Allow Accessibility to click", symbol: "lock.shield")
             return
@@ -799,7 +862,9 @@ final class AppController: ObservableObject {
         case .toggleDrag:
             if isDragging { endDrag(at: point) } else { beginDrag(at: point) }
         case .toggleScrollMode:
-            setMode(mode == .pointer ? .scroll : .pointer)
+            setMode(mode == .scroll ? .pointer : .scroll)
+        case .toggleZoomMode:
+            setMode(mode == .zoom ? .pointer : .zoom)
         case .toggleTracking:
             toggleTracking()
         case .recenter:
@@ -808,6 +873,9 @@ final class AppController: ObservableObject {
             cursor = center
             post(center)
             smoother.reset()
+            scrollJoystick.reset()
+            endPinch()
+            zoomJoystick.reset()
             gestures.resetTiltBaseline()
             toast("Recentered", symbol: "scope")
         case .missionControl, .appWindows, .previousSpace, .nextSpace, .back, .forward, .screenshot:
@@ -833,7 +901,15 @@ final class AppController: ObservableObject {
     }
 
     /// Never leave a mouse button stuck down.
+    /// Closes an in-progress pinch so an app is never left mid-gesture.
+    private func endPinch() {
+        guard let point = pinchPoint else { return }
+        synth.pinch(.ended, at: point)
+        pinchPoint = nil
+    }
+
     private func releaseButtons() {
+        endPinch()
         if synth.isLeftButtonDown { synth.leftUp(at: cursor ?? synth.currentLocation()) }
         isDragging = false
     }
@@ -854,7 +930,11 @@ final class AppController: ObservableObject {
         }
         hotKeys.register(id: HotKey.scrollMode.id, keyCode: HotKey.scrollMode.keyCode, modifiers: mods) { [weak self] in
             guard let self, self.trackingEnabled else { return }
-            self.setMode(self.mode == .pointer ? .scroll : .pointer)
+            self.setMode(self.mode == .scroll ? .pointer : .scroll)
+        }
+        hotKeys.register(id: HotKey.zoomMode.id, keyCode: HotKey.zoomMode.keyCode, modifiers: mods) { [weak self] in
+            guard let self, self.trackingEnabled else { return }
+            self.setMode(self.mode == .zoom ? .pointer : .zoom)
         }
         hotKeys.register(id: HotKey.recenter.id, keyCode: HotKey.recenter.keyCode, modifiers: mods) { [weak self] in
             self?.recenterNow()
@@ -870,7 +950,11 @@ final class AppController: ObservableObject {
     var menuBarSymbol: String {
         if !trackingEnabled { return "cursorarrow" }
         if !motionStreaming { return "airpodspro" }
-        return mode == .scroll ? "arrow.up.and.down.circle" : "cursorarrow.motionlines"
+        switch mode {
+        case .pointer: return "cursorarrow.motionlines"
+        case .scroll: return "arrow.up.and.down.circle"
+        case .zoom: return "plus.magnifyingglass"
+        }
     }
 
     var statusText: String {
@@ -880,14 +964,20 @@ final class AppController: ObservableObject {
         if needsAudioHandoff { return "Choose AirPods as Mac sound output" }
         if !motionStreaming { return "Waiting for AirPods…" }
         if isDragging { return "Dragging" }
-        return mode == .scroll ? "Scrolling" : "Tracking your head"
+        switch mode {
+        case .pointer: return "Tracking your head"
+        case .scroll: return "Scrolling"
+        case .zoom: return "Zooming"
+        }
     }
 }
 
 // MARK: - Keyboard shortcuts for system actions
 
 extension PointerAction {
-    var needsAccessibility: Bool { self != .toggleTracking && self != .toggleScrollMode && self != .none }
+    var needsAccessibility: Bool {
+        self != .toggleTracking && self != .toggleScrollMode && self != .toggleZoomMode && self != .none
+    }
 
     var keyShortcut: (key: CGKeyCode, flags: CGEventFlags)? {
         let arrow: CGEventFlags = [.maskSecondaryFn, .maskNumericPad]
@@ -912,6 +1002,7 @@ extension PointerAction {
         case .middleClick: "computermouse"
         case .toggleDrag: "hand.draw"
         case .toggleScrollMode: "arrow.up.and.down"
+        case .toggleZoomMode: "magnifyingglass"
         case .toggleTracking: "pause.circle"
         case .recenter: "scope"
         case .missionControl: "rectangle.3.group"
